@@ -1,0 +1,21 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:base"],
+  "enabledManagers": ["dockerfile"],
+  "fileMatch": ["^Dockerfile$"],
+  "packageRules": [
+    {
+      "description": "Auto-PR CNPG base image SHA digest bumps within the same major version. Major bumps require human review.",
+      "matchPackagePatterns": ["^ghcr\\.io/cloudnative-pg/postgresql$"],
+      "matchUpdateTypes": ["digest", "minor", "patch", "pin", "pinDigest"],
+      "automerge": false,
+      "labels": ["renovate"]
+    },
+    {
+      "description": "PostgreSQL major version bumps are a deliberate human-driven project.",
+      "matchPackagePatterns": ["^ghcr\\.io/cloudnative-pg/postgresql$"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}

@@ -1,0 +1,110 @@
+# Build, smoke-test, and publish the pg-core CNPG image.
+#
+# - PRs: build + smoke-test only (no push).
+# - Push to main: build + smoke-test + push two tags to ghcr.io.
+#
+# Image registry: ghcr.io/cloud-cafe-dev/pg-core
+#
+# After the first publish, set the package visibility to PUBLIC at
+# https://github.com/orgs/cloud-cafe-dev/packages -> pg-core -> Package settings.
+# Without this step ghcr.io requires a token to pull, which would defeat the
+# whole "no Cloudcafe-internal dependency on the pull path" property of this
+# external-hosting design.
+
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "test_tag=pg-core:test" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=ghcr.io/cloud-cafe-dev/pg-core:17-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=ghcr.io/cloud-cafe-dev/pg-core:17-latest" >> "$GITHUB_OUTPUT"
+
+      - name: Build (test tag, local only)
+        run: docker build -t "${{ steps.tags.outputs.test_tag }}" .
+
+      - name: Smoke test extensions
+        run: |
+          set -eux
+
+          # CNPG image strips the upstream postgres entrypoint (the operator
+          # supplies its own instance manager), so we bootstrap initdb + start
+          # postgres ourselves to test extension loading.
+          docker rm -f pgtest 2>/dev/null || true
+          docker run -d --name pgtest \
+            --entrypoint /bin/bash \
+            "${{ steps.tags.outputs.test_tag }}" \
+            -c '
+              set -e
+              PGDATA=/var/lib/postgresql/data
+              export PATH=/usr/lib/postgresql/17/bin:$PATH
+              mkdir -p "$PGDATA"
+              initdb --auth-host=trust --auth-local=trust --username=postgres "$PGDATA"
+              postgres -D "$PGDATA" -c listen_addresses="*" -c shared_preload_libraries=pgaudit
+            '
+
+          # Wait for ready (max 60s).
+          for i in $(seq 1 60); do
+            if docker exec pgtest pg_isready -U postgres >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          docker exec pgtest pg_isready -U postgres
+
+          # Each extension must instantiate cleanly. pgaudit needs
+          # shared_preload_libraries=pgaudit (set above); the others load lazily.
+          for ext in pgroonga tsearch_extras vector pgaudit; do
+            echo ">>> CREATE EXTENSION ${ext}"
+            docker exec pgtest psql -U postgres -v ON_ERROR_STOP=1 \
+              -c "CREATE EXTENSION ${ext};"
+          done
+
+          docker exec pgtest psql -U postgres -c "\dx"
+          docker rm -f pgtest
+
+      - name: Log in to ghcr.io
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          docker tag "${{ steps.tags.outputs.test_tag }}" "${{ steps.tags.outputs.sha_tag }}"
+          docker tag "${{ steps.tags.outputs.test_tag }}" "${{ steps.tags.outputs.latest_tag }}"
+          docker push "${{ steps.tags.outputs.sha_tag }}"
+          docker push "${{ steps.tags.outputs.latest_tag }}"
+          {
+            echo "## Published"
+            echo ""
+            echo '- `${{ steps.tags.outputs.sha_tag }}` (immutable — reference this in cluster.yaml)'
+            echo '- `${{ steps.tags.outputs.latest_tag }}` (floating — for humans browsing)'
+            echo ""
+            echo "## To adopt"
+            echo ""
+            echo "Bump \`pg/kube/prod/cluster.yaml\` \`imageName\` in cloudcafe/core to:"
+            echo ""
+            echo '`${{ steps.tags.outputs.sha_tag }}`'
+          } >> "$GITHUB_STEP_SUMMARY"
