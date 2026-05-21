@@ -35,8 +35,8 @@ jobs:
           SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
           echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
           echo "test_tag=pg-core:test" >> "$GITHUB_OUTPUT"
-          echo "sha_tag=ghcr.io/cloud-cafe-dev/pg-core:17-$SHORT_SHA" >> "$GITHUB_OUTPUT"
-          echo "latest_tag=ghcr.io/cloud-cafe-dev/pg-core:17-latest" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=ghcr.io/cloud-cafe-dev/pg-core:18-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=ghcr.io/cloud-cafe-dev/pg-core:18-latest" >> "$GITHUB_OUTPUT"
 
       - name: Build (test tag, local only)
         run: docker build -t "${{ steps.tags.outputs.test_tag }}" .
@@ -55,7 +55,7 @@ jobs:
             -c '
               set -e
               PGDATA=/var/lib/postgresql/data
-              export PATH=/usr/lib/postgresql/17/bin:$PATH
+              export PATH=/usr/lib/postgresql/18/bin:$PATH
               mkdir -p "$PGDATA"
               initdb --auth-host=trust --auth-local=trust --username=postgres "$PGDATA"
               postgres -D "$PGDATA" -c listen_addresses="*" -c shared_preload_libraries=pgaudit

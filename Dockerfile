@@ -7,7 +7,7 @@
 # transiently degraded. ghcr.io has no Cloudcafe dependency, eliminating the
 # chicken-and-egg deadlock.
 #
-# Extends ghcr.io/cloudnative-pg/postgresql:<X>-standard-bookworm with extensions
+# Extends ghcr.io/cloudnative-pg/postgresql:<X>-standard-trixie with extensions
 # Cloudcafe apps need that the upstream Standard variant does not ship:
 #
 #   - pgroonga       — Zulip full-text search (apt: packages.groonga.org)
@@ -21,9 +21,9 @@
 #
 # See README.md for build/test/bump procedure and pinning policy.
 
-# Base: CNPG Standard for PostgreSQL 17.6 on Debian bookworm.
+# Base: CNPG Standard for PostgreSQL 18.4 on Debian trixie.
 # SHA pinned for reproducibility — Renovate auto-PRs base updates.
-ARG CNPG_BASE=ghcr.io/cloudnative-pg/postgresql:17.6-standard-bookworm@sha256:a62c149a342b2b1955dda3a9d75e2c6851622e43302a577f393271c19a3c8622
+ARG CNPG_BASE=ghcr.io/cloudnative-pg/postgresql:18.4-standard-trixie@sha256:58c9a9e29a23b814f8f335ce178727d83bc40d96ed7fe8977192d2d8cdcb3927
 
 FROM ${CNPG_BASE}
 
@@ -31,19 +31,19 @@ FROM ${CNPG_BASE}
 USER root
 
 # pgroonga — install from the official Groonga apt repo.
-# packages.groonga.org publishes postgresql-17-pgdg-pgroonga compatible with the
-# PGDG-sourced PostgreSQL 17 already present in the CNPG Standard image.
+# packages.groonga.org publishes postgresql-18-pgdg-pgroonga compatible with the
+# PGDG-sourced PostgreSQL 18 already present in the CNPG Standard image.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         ca-certificates wget gnupg lsb-release; \
     wget -qO /usr/share/keyrings/groonga-archive-keyring.gpg \
         https://packages.groonga.org/debian/groonga-archive-keyring.gpg; \
-    echo "deb [signed-by=/usr/share/keyrings/groonga-archive-keyring.gpg] https://packages.groonga.org/debian/ bookworm main" \
+    echo "deb [signed-by=/usr/share/keyrings/groonga-archive-keyring.gpg] https://packages.groonga.org/debian/ trixie main" \
         > /etc/apt/sources.list.d/groonga.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        postgresql-17-pgdg-pgroonga; \
+        postgresql-18-pgdg-pgroonga; \
     rm -rf /var/lib/apt/lists/*
 
 # tsearch_extras — built from source (no apt package on Debian).
@@ -53,7 +53,7 @@ ARG TSEARCH_EXTRAS_REF=f566e9606bac00a22c4b62e9511b022c861db05c
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        build-essential postgresql-server-dev-17; \
+        build-essential postgresql-server-dev-18; \
     wget -qO /tmp/tsearch.tar.gz \
         "https://github.com/zulip/tsearch_extras/archive/${TSEARCH_EXTRAS_REF}.tar.gz"; \
     tar -xzf /tmp/tsearch.tar.gz -C /tmp; \
@@ -62,7 +62,7 @@ RUN set -eux; \
     make install; \
     cd /; \
     rm -rf /tmp/tsearch*; \
-    apt-get purge -y --auto-remove build-essential postgresql-server-dev-17; \
+    apt-get purge -y --auto-remove build-essential postgresql-server-dev-18; \
     rm -rf /var/lib/apt/lists/*
 
 # Return to the CNPG runtime user. Required: CNPG's instance manager refuses to

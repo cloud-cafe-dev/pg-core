@@ -4,7 +4,7 @@ Cloudcafe's CNPG-compatible PostgreSQL image. Extends the upstream CNPG `Standar
 
 - **Registry**: `ghcr.io/cloud-cafe-dev/pg-core`
 - **Built by**: `.github/workflows/build.yml`
-- **Consumed by**: [`cloudcafe/core`](https://git.cloudcafe.dev/cloudcafe/core) — `pg/kube/prod/cluster.yaml` `spec.imageName`
+- **Consumed by**: `cloudcafe/core` — `pg/kube/prod/cluster.yaml` `spec.imageName`
 
 This repo is intentionally hosted on GitHub (not on Cloudcafe's own Gitea). The cluster pulls this image during CNPG rolling restarts, when our own Gitea/Authentik may be transiently degraded. Hosting on ghcr.io removes any Cloudcafe-internal dependency from the pull path, which eliminates a chicken-and-egg deadlock the Cloudcafe team hit during a previous attempt to host the image internally.
 
@@ -23,8 +23,8 @@ Add a new extension only when an app needs it. Unused extensions are still maint
 
 Two tags pushed per `main` build:
 
-- `ghcr.io/cloud-cafe-dev/pg-core:17-<short-sha>` — **immutable**, the only tag that should be referenced from cloudcafe/core's `cluster.yaml`.
-- `ghcr.io/cloud-cafe-dev/pg-core:17-latest` — **floating**, for humans browsing the registry. Never used by manifests.
+- `ghcr.io/cloud-cafe-dev/pg-core:18-<short-sha>` — **immutable**, the only tag that should be referenced from cloudcafe/core's `cluster.yaml`.
+- `ghcr.io/cloud-cafe-dev/pg-core:18-latest` — **floating**, for humans browsing the registry. Never used by manifests.
 
 Cluster adoption is always a manual `cluster.yaml` PR. ArgoCD never silently rolls the database — image rebuilds land in the registry but the cluster only adopts a new image when a human bumps `imageName` to a new SHA tag.
 
@@ -32,7 +32,7 @@ Cluster adoption is always a manual `cluster.yaml` PR. ArgoCD never silently rol
 
 The `Dockerfile` pins:
 
-- `CNPG_BASE` to a specific minor tag **and** SHA digest (`17.6-standard-bookworm@sha256:...`).
+- `CNPG_BASE` to a specific minor tag **and** SHA digest (`18.4-standard-trixie@sha256:...`).
 - `TSEARCH_EXTRAS_REF` to a specific commit SHA on `zulip/tsearch_extras`.
 
 `renovate.json` auto-PRs base SHA bumps. `tsearch_extras` is bumped manually because the upstream tags lag behind `main` and not every commit is verified against current PostgreSQL minor versions.
@@ -50,7 +50,7 @@ docker run -d --name pgtest \
   -c '
     set -e
     PGDATA=/var/lib/postgresql/data
-    export PATH=/usr/lib/postgresql/17/bin:$PATH
+    export PATH=/usr/lib/postgresql/18/bin:$PATH
     mkdir -p "$PGDATA"
     initdb --auth-host=trust --auth-local=trust --username=postgres "$PGDATA"
     postgres -D "$PGDATA" -c listen_addresses="*" -c shared_preload_libraries=pgaudit
@@ -78,22 +78,22 @@ Without this step, kubelet pulling from a Kubernetes cluster will get 401 unless
 
 ## Bumping the base image (PostgreSQL minor patch)
 
-PostgreSQL 17.6 → 17.7 (or future minors):
+PostgreSQL 18.4 → 18.5 (or future minors):
 
 1. Update `CNPG_BASE` ARG default in `Dockerfile` to the new tag and SHA digest.
 2. Open a PR. CI builds and smoke-tests the image; merge requires green.
-3. After merge, find the new `:17-<short-sha>` tag in ghcr.io.
+3. After merge, find the new `:18-<short-sha>` tag in ghcr.io.
 4. Open a PR in `cloudcafe/core` bumping `pg/kube/prod/cluster.yaml` `imageName` to that SHA tag. Schedule for a low-traffic window — CNPG performs a rolling restart.
 5. Verify post-rollout per cloudcafe/core's `docs/apps/pg.md` § Custom image.
 
 Renovate typically opens the first PR automatically. The cluster bump is always a deliberate human action.
 
-## Bumping for a PostgreSQL major version (17 → 18+)
+## Bumping for a PostgreSQL major version (18 → 19+)
 
 Discrete project. Steps:
 
 1. Verify all extensions ship for the new major (`pgroonga`, `tsearch_extras`, `vector`, `pgaudit`).
-2. Bump `Dockerfile` `CNPG_BASE` and `postgresql-17-pgdg-pgroonga` / `postgresql-server-dev-17` package names to the new major.
+2. Bump `Dockerfile` `CNPG_BASE` (image tag and base OS — CNPG's default base OS may also shift between majors) and `postgresql-18-pgdg-pgroonga` / `postgresql-server-dev-18` package names to the new major. Also update the `:18-` tag scheme in `.github/workflows/build.yml`.
 3. Build and smoke-test. Plan a CNPG major upgrade in cloudcafe/core separately — that involves `pg_upgrade` or logical replication, not just an `imageName` bump.
 
 ## Adding a new extension
@@ -113,11 +113,11 @@ ghcr.io has substantially better availability than this homelab. The realistic o
 - **ghcr.io outage during a rolling restart** — kubelet `imagePullPolicy: IfNotPresent` (k8s default for non-`:latest` tags) means already-cached images on the node still start; only first-pulls of new tags are affected.
 - **Permanent loss** — the Dockerfile and workflow here are the source of truth; anyone with this repo can rebuild and republish.
 
-If pulling ever genuinely fails for an extended period, fall back to `ghcr.io/cloudnative-pg/postgresql:17` in cloudcafe/core's `cluster.yaml`. Apps that depend on the custom extensions (today: Zulip) stay degraded until pulls work again; everything else keeps running. The PG17 → PG17 transition is data-safe.
+If pulling ever genuinely fails for an extended period, fall back to `ghcr.io/cloudnative-pg/postgresql:18` in cloudcafe/core's `cluster.yaml`. Apps that depend on the custom extensions (today: Zulip) stay degraded until pulls work again; everything else keeps running. The PG18 → PG18 transition is data-safe.
 
 ## Security and supply-chain notes
 
-- Build-essential and `postgresql-server-dev-17` are purged in the same `RUN` layer that builds tsearch_extras, so the final image carries no compiler toolchain.
+- Build-essential and `postgresql-server-dev-18` are purged in the same `RUN` layer that builds tsearch_extras, so the final image carries no compiler toolchain.
 - The Groonga apt repo is signed; the keyring is fetched once over HTTPS and stored at `/usr/share/keyrings/groonga-archive-keyring.gpg`.
 - The image runs as uid `26` (CNPG's expected non-root user). CNPG's instance manager refuses to start as root.
 - Workflow auth uses the built-in `${{ secrets.GITHUB_TOKEN }}` with `permissions: packages: write` only — no PAT, no broader scope, automatic rotation per workflow run.
